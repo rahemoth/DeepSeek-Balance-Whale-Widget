@@ -14,6 +14,8 @@ window.__dshWhaleWidget = true
 //       contenteditable 反而是 false —— 只认前两种会让挂件在新版 DSH 上**完全不初始化**，
 //       见 issue #123）。检测到才继续，否则不碰 DOM、不注册监听。
 function dshwIsChatRoot(r) {
+  // The standalone desktop shell deliberately has no DSH chat composer.
+  if (window.whaleDesktop && window.whaleDesktop.standalone === true) return !!window.whaleDisplay
   if (!r || !r.querySelector) return false
   return !!(
     r.querySelector('textarea') ||
@@ -348,7 +350,7 @@ var MIN_SCALE = 0.6
 var MAX_SCALE = 2.5
 var STEP = 0.1
 var CLICK_SQ = 9
-var REFRESH_MS = 60000
+var REFRESH_MS = window.whaleDesktop && window.whaleDesktop.standalone ? 15000 : 60000
 var CHANGE_MS = 900
 var ANIM_MS = 700
 var BUBBLE_MS = 5000
@@ -4155,10 +4157,12 @@ function usageAlertBudgetEditor(key, onSave) {
     var cfg = isCost
       ? (((usageSet || {}).turnCost) || {})
       : (isWait ? ((((usageSet || {}).events || {})[waitKind]) || {}) : (((usageSet || {})[isAlert ? 'alert' : 'budget']) || {}))
-    var numDef = isAlert ? 50 : 20
+    var isPercent = cfg.unit === 'percent'
+    var numDef = isPercent ? (isAlert ? 20 : 80) : (isAlert ? 50 : 20)
     var numInit = isAlert ? (cfg.below != null ? cfg.below : numDef) : (cfg.amount != null ? cfg.amount : numDef)
     // 三种自带内容各自取自己的默认模板；等待两模式取宿主 waitDefaultLines() 的逐字段一致版
     var stepLines0 = isCost ? usageTurnCostLines() : (isWait ? usageWaitLinesOf(cfg, waitKind) : usageRemindLinesOf(cfg, isAlert))
+    if (isPercent && !Array.isArray(cfg.lines)) stepLines0 = [{ type: 'text', text: isAlert ? '剩余额度低于 {below}%' : '额度已用达到 {amount}%', size: 9 }]
     if (isWait) {
       try { waitSnapLines = stepLines0 ? JSON.parse(JSON.stringify(stepLines0)) : [] } catch (err) { waitSnapLines = [] }
     }
@@ -4197,6 +4201,7 @@ function usageAlertBudgetEditor(key, onSave) {
         ? ('编辑 ' + (waitKind === 'approval' ? '授权' : '提问') + '提示内容(可拖动下方模块入框)')
         : ('编辑 ' + (isAlert ? '余额预警' : '今日预算') + '提醒内容(可拖动下方模块入框)'))
     card.appendChild(title)
+    if (isPercent) title.textContent = isAlert ? '剩余额度预警' : '额度使用提醒'
     // —— 头部:预警/预算=触发条件;cost=自动关闭 + 任务结束音效;wait=说明 + 占位符提示 ——
     var secCond = document.createElement('div')
     secCond.className = 'dshwv-bubsec dshwv-bubsec-first'
@@ -4206,6 +4211,7 @@ function usageAlertBudgetEditor(key, onSave) {
         ? ((waitKind === 'approval' ? '授权' : '提问') + '提示内容({session} = 对话名)')
         : (isAlert ? '触发条件(余额低于该值时提醒)' : '触发条件(今日已用达到该值时提醒)'))
     card.appendChild(secCond)
+    if (isPercent) secCond.textContent = isAlert ? '触发条件（剩余百分比）' : '触发条件（已用百分比）'
     // 触发条件控件(启用 + 阈值):cost 模式没有触发条件,这两个控件不创建
     // v761：wait 模式同样没有"触发条件"（挂起音效/开关/自动关闭/冒泡都在「全局音效设置」面板那一区里）
     var chk = null
@@ -4222,6 +4228,7 @@ function usageAlertBudgetEditor(key, onSave) {
       numInp.className = 'dshwv-number'
       numInp.style.width = '80px'
       numInp.value = String(numInit)
+      if (isPercent) { numInp.max = '100'; numInp.step = '1' }
     }
     var condBox = document.createElement('div')
     condBox.style.padding = '2px 0'
@@ -4278,9 +4285,9 @@ function usageAlertBudgetEditor(key, onSave) {
     gOn.appendChild(qLabel('启用提醒'))
     condBox.appendChild(gOn)
     var gNum = segCond()
-    gNum.appendChild(qLabel(isAlert ? '余额 ≤ ' : '今日已用 ≥ '))
+    gNum.appendChild(qLabel(isPercent ? (isAlert ? '剩余 ≤ ' : '已用 ≥ ') : (isAlert ? '余额 ≤ ' : '今日已用 ≥ ')))
     gNum.appendChild(numInp)
-    gNum.appendChild(qLabel(' 元时提醒'))
+    gNum.appendChild(qLabel(isPercent ? '% 时提醒' : ' 元时提醒'))
     condBox.appendChild(gNum)
     // 「元时提醒」后换行,自动关闭及其秒数独占一行
     var condBrk = document.createElement('span')
@@ -4316,6 +4323,25 @@ function usageAlertBudgetEditor(key, onSave) {
     }
     // v761：wait 模式 condBox 里只有说明（上面那一支已直接挂进 card），不重复挂一个空的盒子
     if (!isWait) card.appendChild(condBox)
+    var percentWindow = null, percentSound = null, percentSoundOn = null, percentVol = null
+    if (isPercent) {
+      percentWindow = apiSelectEl((cfg.provider === 'opencode_go' ? ['rolling', 'weekly', 'monthly'] : ['rolling', 'weekly']).map(function (id) { return [id, id === 'rolling' ? '5h' : id === 'weekly' ? '周' : '月'] }), cfg.windowKey || 'rolling')
+      card.appendChild(apiPanelRow('额度窗口', percentWindow))
+      percentSoundOn = document.createElement('input'); percentSoundOn.type = 'checkbox'; percentSoundOn.checked = !!cfg.soundOn
+      percentSound = document.createElement('select')
+      percentSound.appendChild(new Option('默认提示音', 'frag:cost_a')); percentSound.appendChild(new Option('经验球', 'frag:exp_orb'))
+      fetch('/dsh-whale/audio.json').then(function (r) { return r.json() }).then(function (d) {
+        ;(d.fragments || []).forEach(function (f) { percentSound.appendChild(new Option(f.name || f.id, 'frag:' + f.id)) })
+        ;(d.groups || []).forEach(function (g) { percentSound.appendChild(new Option(g.name || g.id, 'grp:' + g.id)) })
+        percentSound.value = cfg.sel || 'frag:cost_a'
+      }).catch(function () {})
+      percentSound.value = cfg.sel || 'frag:cost_a'
+      var soundControls = document.createElement('div'); soundControls.appendChild(percentSoundOn); soundControls.appendChild(percentSound)
+      percentVol = document.createElement('input'); percentVol.type = 'range'; percentVol.min = '0'; percentVol.max = '1'; percentVol.step = '.05'; percentVol.value = String(cfg.vol == null ? .6 : cfg.vol)
+      soundControls.appendChild(percentVol)
+      var trySound = document.createElement('button'); trySound.type = 'button'; trySound.textContent = '试听'; trySound.onclick = function () { playBindingSound({ on: true, sel: percentSound.value }, { vol: Number(percentVol.value) }, { preview: true }) }
+      soundControls.appendChild(trySound); card.appendChild(apiPanelRow('提示音效', soundControls))
+    }
     // v851（第 4 条）：这一条提示/预警/预算**自己的泡泡框**（默认跟随保底框）
     // v857（用户要求）：位置与样式都向 W2 看齐 —— 放在**模块调色板下面**、整行占满、无标签
     //   （按钮内部就是"文字居中 + ▾ 右对齐"），换框也会立刻重画下面的预览。
@@ -4458,7 +4484,7 @@ function usageAlertBudgetEditor(key, onSave) {
       // v761：wait 模式的默认模板 = 宿主 waitDefaultLines() 的逐字段一致版
       step.modules = JSON.parse(JSON.stringify(isCost
         ? usageTurnCostDefaultLines()
-        : (isWait ? usageWaitDefaultLines(waitKind) : usageRemindDefaultLines(isAlert))))
+        : (isWait ? usageWaitDefaultLines(waitKind) : (isPercent && window.whaleDisplay ? window.whaleDisplay.defaultRuleLines(isAlert ? 'alert' : 'budget', cfg.provider) : usageRemindDefaultLines(isAlert)))))
       renderBubblePv()
     })
     btns.appendChild(resBtn)
@@ -4510,9 +4536,11 @@ function usageAlertBudgetEditor(key, onSave) {
         return
       }
       // v851：把这一类提醒自己的框也带上（调用方负责写进 usageSet / 模型配置）
+      if (isPercent && (!isFinite(Number(numInp.value)) || Number(numInp.value) < 0 || Number(numInp.value) > 100 || numInp.value === '')) { numInp.reportValidity(); return }
       var o = { on: chk.checked, lines: lines, frameId: pickedFrameId, autoClose: acChk.checked, ttlSec: Math.max(0, Number(secInp.value) || 0) }
       if (isAlert) o.below = Math.max(0, Number(numInp.value) || 0)
       else o.amount = Math.max(0, Number(numInp.value) || 0)
+      if (isPercent) { o.unit = 'percent'; o.windowKey = percentWindow.value; o.soundOn = percentSoundOn.checked; o.sel = percentSound.value; o.vol = Number(percentVol.value); o.legacyMoneyRule = cfg.legacyMoneyRule || null }
       cleanup()
       if (onSave) onSave(o)
     })
@@ -4738,6 +4766,7 @@ function apiModelsFetch(tries) {
           try { if (usagePanelOpen && usageSet !== null) rebuildUsageSubShell() } catch (err) {}
           try { renderBubblePal() } catch (err) {}
         }
+        try { renderBalanceCards() } catch (err) {}
         apiModelsFlushWaiters()
         return
       }
@@ -4971,6 +5000,20 @@ function openApiModelPanel(modelId) {
     var baseInp = apiTextInput(isNew ? '' : m.baseUrl, '例如 https://my-gateway.example.com')
     var baseRow = apiPanelRow('Base URL', baseInp)
     card.appendChild(baseRow)
+    // ChatGPT 套餐（本地）：指定 Codex 目录（留空 = 默认 $CODEX_HOME 或 ~/.codex）
+    var gptDirInp = apiTextInput((m && m.params && m.params.codexHome) || '', '留空 = 默认：$CODEX_HOME 或 C:\\Users\\<用户名>\\.codex')
+    var gptDirRow = apiPanelRow('Codex 目录（可选）', gptDirInp)
+    gptDirRow.style.display = 'none'
+    card.appendChild(gptDirRow)
+    function gptTplHint() {
+      var isGp = tplSel.value === 'gptplan'
+      gptDirRow.style.display = isGp ? '' : 'none'
+      if (isGp) {
+        tplNote.textContent = '本地零联网：读取 Codex 登录态 auth.json 里的套餐类型与到期时间，不需要 API key；目录可在上方「Codex 目录」指定。'
+      }
+    }
+    tplSel.addEventListener('change', function () { try { gptTplHint() } catch (err) {} })
+    try { gptTplHint() } catch (err) {}
     // 余额接口（自定义可改；模板默认自动带上）
     // 用 host 下发的接口描述(balanceDesc)回填；m.balance 是数值，不能当描述用。
     // v724：新增模型时改用「所选模板」的描述做初始值（编辑态仍以注册表里的实际配置为准）——
@@ -5110,6 +5153,12 @@ function openApiModelPanel(modelId) {
               var v = kv.slice(i + 1).trim()
               if (/^[A-Za-z_][A-Za-z0-9_]{0,30}$/.test(k)) o[k] = v
             })
+            // ChatGPT 套餐模板：目录走独立输入框（存 params.codexHome）
+            if (tplSel.value === 'gptplan') {
+              var gd2 = (gptDirInp.value || '').trim()
+              if (gd2) o['codexHome'] = gd2
+              else delete o['codexHome']
+            }
             return o
           })(),
           matchIds: (matchInp.value || '').split(',').map(function (s) { return s.trim() }).filter(function (s) { return s.length > 0 }),
@@ -5392,6 +5441,78 @@ function buildUsageSettingsArea() {
     usagePanel.appendChild(row)
     info.textContent = stateFn()
   }
+  // —— 显示项目（多选）：哪些余额/额度/套餐以「迷你卡片」和/或「泡泡」常驻显示 ——
+  var dspTitle = document.createElement('div')
+  dspTitle.className = 'dshwv-audiorow'
+  dspTitle.style.margin = '5px 0'
+  var dspLb = document.createElement('span')
+  dspLb.textContent = '显示项目（多选）'
+  dspLb.style.flex = '0 0 auto'
+  dspTitle.appendChild(dspLb)
+  var dspGap = document.createElement('span')
+  dspGap.style.flex = '1'
+  dspTitle.appendChild(dspGap)
+  var dspTip = document.createElement('span')
+  dspTip.style.fontSize = '.68rem'
+  dspTip.style.color = '#64748b'
+  dspTip.textContent = '卡片 = 鲸鱼旁迷你卡片；泡泡 = 首个点击泡泡'
+  dspTitle.appendChild(dspTip)
+  usagePanel.appendChild(dspTitle)
+  function dspLine(idText, name, st) {
+    var line = document.createElement('div')
+    line.style.display = 'flex'
+    line.style.alignItems = 'center'
+    line.style.gap = '8px'
+    line.style.margin = '3px 0'
+    var nm = document.createElement('span')
+    nm.textContent = name
+    nm.style.flex = '1'
+    nm.style.overflow = 'hidden'
+    nm.style.textOverflow = 'ellipsis'
+    nm.style.whiteSpace = 'nowrap'
+    nm.style.fontSize = '.78rem'
+    line.appendChild(nm)
+    var cbCard = document.createElement('input')
+    cbCard.type = 'checkbox'
+    cbCard.checked = !!(st && st.card)
+    cbCard.dataset.sourceId = idText; cbCard.dataset.displayKind = 'card'
+    cbCard.title = '以迷你卡片常驻显示'
+    var lbCard = menuLabel('卡片')
+    lbCard.style.fontSize = '.72rem'
+    lbCard.style.color = '#334155'
+    line.appendChild(cbCard)
+    line.appendChild(lbCard)
+    var cbBubble = document.createElement('input')
+    cbBubble.type = 'checkbox'
+    cbBubble.checked = !!(st && st.bubble)
+    cbBubble.dataset.sourceId = idText; cbBubble.dataset.displayKind = 'bubble'
+    cbBubble.title = '在首个点击泡泡里加入该来源模块'
+    var lbBubble = menuLabel('泡泡')
+    lbBubble.style.fontSize = '.72rem'
+    lbBubble.style.color = '#334155'
+    line.appendChild(cbBubble)
+    line.appendChild(lbBubble)
+    function commit() {
+      if (!showBalanceItems[idText]) showBalanceItems[idText] = { card: false, bubble: false }
+      showBalanceItems[idText].card = cbCard.checked
+      showBalanceItems[idText].bubble = cbBubble.checked
+      saveConfig()
+      try { renderBalanceCards() } catch (err) {}
+      try { balanceCardsSyncBubbles() } catch (err) {}
+    }
+    cbCard.addEventListener('change', commit)
+    cbBubble.addEventListener('change', commit)
+    usagePanel.appendChild(line)
+  }
+  dspLine('deepseek', 'DeepSeek（内置）', showBalanceItems['deepseek'])
+  apiModels.forEach(function (am) {
+    if (!am || !am.id || am.builtin) return
+    if (window.whaleDisplay && am.provider !== 'gptplan' && am.provider !== 'opencode_go') return
+    var usable = am.hasBalanceApi || am.planSupport || am.gptPlan || (am.quota && am.quota.on)
+    if (!usable) return
+    dspLine(am.id, am.name, showBalanceItems[am.id])
+  })
+  if (window.whaleDisplay) window.whaleDisplay.mountSettings(usagePanel)
   // —— 模型（自定义 API）：余额预警 / 今日预算 都移进各个模型自己的子菜单 ——
   // 与菜单里其它设置行同款（.dshwv-audiorow 自带 color:#203170，不额外设字体/颜色）
   var secRow = document.createElement('div')
@@ -5472,6 +5593,7 @@ function buildUsageSettingsArea() {
     var infoTxt = ''
     if (am.error) infoTxt = '⚠ ' + am.error
     else if (am.codex && am.codex.ok) infoTxt = apiCodexRowText(am)
+    else if (am.gptPlan && am.gptPlan.ok) infoTxt = apiGptPlanText(am)
     else if (planOn) infoTxt = '厂商额度 ' + apiPlanSummary(am.id)
     else if (qOn) infoTxt = '额度 ' + apiQuotaSummary(am.id)
     else if (am.balanceMode === 'events') infoTxt = '余额 —（无接口·按事件）· 今日 ' + apiFmtMoney(am.todayUsage, apiTodayCur(am))
@@ -5641,6 +5763,7 @@ function openApiModelMenu(modelId) {
     closeApiModelPanel()
     var m = apiModelById(modelId)
     if (!m) return
+    if (window.whaleDisplay && (m.provider === 'gptplan' || m.provider === 'opencode_go')) { window.whaleDisplay.openSubscription(m); return }
     var mask = document.createElement('div')
     mask.className = 'dshwv-usage-mask'
     mask.style.zIndex = '29000'
@@ -6872,6 +6995,7 @@ function runApiModelAlerts() {
     for (var i = 0; i < apiModels.length; i++) {
       var m = apiModels[i]
       if (!m || !m.id || m.id === 'deepseek') continue // 内置 DeepSeek 走上面的原有链路
+      if (window.whaleDisplay && (m.provider === 'gptplan' || m.provider === 'opencode_go')) continue
       var st = ms[m.id]
       if (!st) continue
       var a = st.alert
@@ -10503,6 +10627,26 @@ function renderBubblePal() {
   if (apiModelsLoaded) {
     apiModels.forEach(function (am) {
       if (!am || !am.id || am.builtin) return
+      // ChatGPT 套餐（本地）：有额度窗口时与订阅额度厂商同款「额度」模块（编辑器可切显示样式）
+      if (am.gptPlan && am.gptPlan.ok) {
+        var keyG2 = 'pq:' + am.id
+        var chipG2 = document.createElement('div')
+        chipG2.className = 'dshwv-palchip'
+        chipG2.setAttribute('data-pal', keyG2)
+        chipG2.textContent = '额度·' + am.name
+        chipG2.title = 'ChatGPT 套餐额度（5h / 周窗口，由本地 Codex 登录态读取）；「显示样式」可选时间窗口'
+        chipG2.draggable = true
+        chipG2.addEventListener('click', function (e) {
+          e.stopPropagation()
+          bubbleModuleAdd({ type: 'plan', modelId: am.id, size: 8, tpl: '{plan} \u00b7 {plan_reset}', planWin: 'all' })
+        })
+        chipG2.addEventListener('dragstart', function (e) {
+          try { e.dataTransfer.setData('text/plain', keyG2) } catch (err) {}
+          bubbleDragKey = keyG2
+        })
+        bubblePalEl.appendChild(chipG2)
+        return
+      }
       var planSupported = apiPlanSupport(am.id)
       // 只有「一个接口返回多个窗口」的额度厂商（如 OpenCode Go）才把调色板收成一个「额度」模块；
       // 单窗口的既有额度厂商（智谱 / Kimi / MiniMax Coding）保持上游原有的三个模块不变
@@ -12439,6 +12583,7 @@ function moduleTypeName(t, m) {
   }
   if (t === 'image') return '图片/动图'
   if (t === 'randimg') return '随机图片'
+  if (t === 'gptplan') return 'ChatGPT 套餐'
   if (t === 'random') return '随机语句'
   return '文本'
 }
@@ -17084,6 +17229,8 @@ function loadBubbleCfg() {
           bubbleTapAdvance = d.config.tapAdvance === true // v727
           applyBubbleCfgSeq()
           maybeBubbleMigratePeak()
+          // 显示项目（多选）的泡泡通道：配置加载完成后补齐一次（服务端可能还没有对应模块）
+          try { balanceCardsSyncBubbles() } catch (err) {}
         }
       })
       .catch(function () {})
@@ -17267,6 +17414,7 @@ function bubbleClearModuleRows() {
   } catch (err) {}
 }
 function sceneOpen(kind, renderFn, ttlMs) {
+  bubbleBox.classList.toggle('dshwv-desktop-source', kind === 'desktop-source')
   var wasOpen = bubbleShown
   // v821（P1）：系统泡泡（消耗 / 预警 / 等待）没有"第 n 次点击"上下文 ⇒ 默认用**保底框**；
   //   队列泡泡（normal/random/custom）由 bubbleShowSeqNext() 在调用前按该项的框画好。
@@ -17658,6 +17806,8 @@ function bubblePlanModuleLabel(m) {
 function apiPlanMultiWin(modelId) {
   var am = apiModelById(modelId)
   if (!am) return false
+  // ChatGPT 套餐（本地）：额度窗口来自 app-server（5h / 周），同样支持「显示样式」下拉
+  if (am.gptPlan && am.gptPlan.ok && Array.isArray(am.gptPlan.windows) && am.gptPlan.windows.length) return true
   var list = apiTemplates || []
   for (var i = 0; i < list.length; i++) {
     if (list[i] && list[i].id === am.provider) {
@@ -17793,7 +17943,7 @@ function bubbleContentTokenMap(m) {
   var v = ''
   var map = {}
   // 自定义模型模块：{balance}/{today} 取该模型自己的数据，并兼容旧的 _ds 写法
-  if (bubbleIsModelMod(m) && (m.type === 'balance' || m.type === 'today' || m.type === 'quota' || m.type === 'plan')) {
+  if (bubbleIsModelMod(m) && (m.type === 'balance' || m.type === 'today' || m.type === 'quota' || m.type === 'plan' || m.type === 'gptplan')) {
     map['balance'] = apiModelBalanceText(m.modelId)
     map['today'] = apiModelTodayText(m.modelId)
     map['balance_ds'] = map['balance']
@@ -17811,6 +17961,12 @@ function bubbleContentTokenMap(m) {
     map['plan_used'] = map['plan']
     map['plan_left'] = apiPlanLeftText(m.modelId, pwin)
     map['plan_reset'] = apiPlanResetText(m.modelId, pwin)
+    // ChatGPT 套餐（本地）占位符
+    if (m.type === 'gptplan') {
+      var gptAm = apiModelById(m.modelId)
+      map['gpt_plan'] = apiGptPlanText(gptAm)
+      map['gpt_days'] = apiGptPlanDaysText(gptAm)
+    }
     return map
   }
   if (m.type === 'balance') {
@@ -17842,7 +17998,7 @@ function bubbleTplHelpItems(m) {
   m = m || {}
   var arr = []
   function add(k, d) { arr.push({ k: '{' + k + '}', d: d }) }
-  if (bubbleIsModelMod(m) && (m.type === 'balance' || m.type === 'today' || m.type === 'quota' || m.type === 'plan')) {
+  if (bubbleIsModelMod(m) && (m.type === 'balance' || m.type === 'today' || m.type === 'quota' || m.type === 'plan' || m.type === 'gptplan')) {
     if (m.type !== 'quota' && m.type !== 'plan') {
       add('balance', '该模型的余额')
       add('today', '该模型今日已用')
@@ -17857,6 +18013,13 @@ function bubbleTplHelpItems(m) {
     add('plan', '订阅额度已用百分比（多窗口厂商按「显示样式」所选窗口，带窗口标签）')
     add('plan_left', '订阅额度剩余百分比（同上）')
     add('plan_reset', '订阅额度刷新倒计时（同上；全部窗口时为紧凑倒计时）')
+    if (m.type === 'gptplan') {
+      arr = [
+        { k: '{gpt_plan}', d: 'ChatGPT 套餐：计划类型 · 剩余天数（如「Plus · 剩 27 天」）' },
+        { k: '{gpt_days}', d: '仅剩余天数（如「剩 27 天」）' },
+      ]
+      return arr
+    }
     return arr
   }
   if (m.type === 'balance') add('balance_ds', '总余额(充值金额+赠金)')
@@ -18704,6 +18867,7 @@ function bubblePreviewInto(container, mods, widthPx, opts) {
 function whaleClick() {
   try {
     if (!bubbleOn) return
+    if (window.whaleDisplay && window.whaleDisplay.nextBubble()) return
     if (bubbleScene && (bubbleScene.kind === 'cost' || bubbleScene.kind === 'alert')) return // 消耗/预警提醒期间点鲸鱼不动作(点泡泡才关)
     if (!bubbleShown) {
       bubbleRoundOn = true
@@ -18735,6 +18899,7 @@ function whaleClick() {
 function bubbleNext() {
   try {
     if (!bubbleShown) return
+    if (bubbleScene && bubbleScene.kind === 'desktop-source') { bubbleRoundOn = true; bubbleSeqIdx = 1; bubbleShowSeqNext(); return }
     if (bubbleScene && bubbleScene.kind === 'cost') { hideCostBubble(); return }
     if (bubbleScene && bubbleScene.kind === 'alert') { hideUsageAlertBubble(); return }
     // v777：等待交互泡泡**可以点掉**（用户反馈「无法点击关闭」）。原来的实现在这里是 `return`
@@ -19081,6 +19246,7 @@ function render() {
   } else {
     setHint(hint)
   }
+  try { renderBalanceCards() } catch (err) {}
   // 注意:不在泡泡显示期间整泡重绘(内容在用户观看时保持稳定);
   // 数值/峰谷等更新由“泡泡消失→下一次显示”时的渲染自然采用最新 state
 }
@@ -19327,6 +19493,8 @@ var menuBtnHide = false // 主菜单开关:隐藏挂件菜单按钮,改为右键
 // 所以这里保持默认 true 是安全的（不会让没配 Codex 的用户被扫盘），也不会因为一次普通保存
 // 就把老用户的开关写成 false。开关 UI 现只在 Codex 模型的设置子菜单里（见 codexStatsCheckbox）。
 var codexStatsOn = true
+// 显示项目（多选）：{ [来源id]: { card: bool, bubble: bool } }，来源id = 'deepseek'（内置）或模型 id
+var showBalanceItems = {}
 // —— v734（issue #97 / #88）：设置保存的「防覆盖 + 失败可见」——
 // #97 根因：首次 GET 还没落地就 PUT，会把内存里的默认值整包写进服务端（重启后设置被洗成默认值）。
 // #88 根因：这个 PUT 以前是 fire-and-forget，服务端 500 / {ok:false} 完全没人读。
@@ -19382,7 +19550,134 @@ function configPayload() {
   //   宿主白名单、读侧合并、客户端回填都做了，唯独这里没发 ⇒ 宿主 pickB 走"沿用旧值(true)" ⇒ 永远存不住。
   //   与 v863 的 subagent.mute 是同一类"半截活"：新键必须走完 **四件套**
   //   ① 客户端 PUT 载荷 → ② 宿主写侧白名单 → ③ 宿主读侧合并 → ④ 客户端回填。
-  return JSON.stringify({ scale: state.scale, sound: soundOn, pressOn: pressOn !== false, vol: soundVol, soundSet: soundSet, usageMode: usageMode, peakMode: peakMode, bubbleOn: bubbleOn, turnCostOn: turnCostOn, turnCostCloseMs: turnCostCloseMs, scrollGapOn: scrollGapOn, scrollGapPx: scrollGapPx, menuBtnHide: menuBtnHide, codexStatsOn: codexStatsOn })
+  return JSON.stringify({ scale: state.scale, sound: soundOn, pressOn: pressOn !== false, vol: soundVol, soundSet: soundSet, usageMode: usageMode, peakMode: peakMode, bubbleOn: bubbleOn, turnCostOn: turnCostOn, turnCostCloseMs: turnCostCloseMs, scrollGapOn: scrollGapOn, scrollGapPx: scrollGapPx, menuBtnHide: menuBtnHide, codexStatsOn: codexStatsOn, showBalanceItems: showBalanceItems })
+}
+// —— 显示项目：迷你卡片 + GPT 套餐文案（gptplan 数据源共用）——
+function apiGptPlanText(am) {
+  var g = am && am.gptPlan
+  if (!g || !g.ok) return (g && g.error) ? ('⚠ ' + g.error) : '—'
+  var s = g.planLabel || g.planType || 'ChatGPT'
+  if (g.activeUntil && g.daysLeft !== null && g.daysLeft !== undefined) s += ' \u00b7 剩 ' + g.daysLeft + ' 天'
+  return s
+}
+function apiGptPlanDaysText(am) {
+  var g = am && am.gptPlan
+  if (!g || !g.ok || g.daysLeft === null || g.daysLeft === undefined) return '—'
+  return '剩 ' + g.daysLeft + ' 天'
+}
+var balCardsEl = null
+function balanceCardsEnsure() {
+  if (balCardsEl) return balCardsEl
+  balCardsEl = document.createElement('div')
+  balCardsEl.className = 'dshwv-bal-cards'
+  balCardsEl.style.cssText = 'position:absolute;bottom:calc(100% + 8px);left:6px;right:6px;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;pointer-events:none;z-index:10'
+  root.appendChild(balCardsEl)
+  return balCardsEl
+}
+function balanceCardText(id) {
+  if (id === 'deepseek') {
+    if (state.status === 'error') return '获取失败'
+    if (state.balance === null) return '\u2026'
+    return fmt(state.balance, state.currency)
+  }
+  var am = apiModelById(id)
+  if (!am) return '—'
+  // 套餐模型：有额度窗口（5h/周）优先显示窗口，否则显示套餐类型与剩余天数
+  if (am.gptPlan && am.gptPlan.ok) {
+    if (apiPlanWinList(id)) return '已用 ' + apiPlanUsedText(id, 'all') + (am.gptPlan.daysLeft !== null && am.gptPlan.daysLeft !== undefined ? ' · 剩 ' + am.gptPlan.daysLeft + ' 天' : '')
+    return apiGptPlanText(am)
+  }
+  if (apiPlanSupport(id) && apiPlanWinList(id)) return '已用 ' + apiPlanUsedText(id, 'all')
+  if (am.balance !== null && am.balance !== undefined) return apiFmtMoney(am.balance, am.currency)
+  if (am.quota && am.quota.on) return apiQuotaSummary(id)
+  if (am.error) return '⚠ ' + am.error
+  return '—'
+}
+function balanceCardName(id) {
+  if (id === 'deepseek') return 'DeepSeek'
+  var am = apiModelById(id)
+  return am ? am.name : id
+}
+function renderBalanceCards() {
+  if (window.whaleDisplay) { window.whaleDisplay.sync(showBalanceItems, apiModels); return }
+  try {
+    var el = balanceCardsEnsure()
+    var sbi = showBalanceItems || {}
+    var ks = Object.keys(sbi)
+    var html = ''
+    for (var i = 0; i < ks.length; i++) {
+      if (!sbi[ks[i]] || !sbi[ks[i]].card) continue
+      var txt = balanceCardText(ks[i])
+      html += '<div class="dshwv-bal-card" data-id="' + String(ks[i]).replace(/"/g, '') + '" style="pointer-events:auto;background:rgba(255,255,255,.96);border:1px solid #dbe3f0;border-radius:8px;padding:4px 8px;color:#1e293b;box-shadow:0 1px 4px rgba(0,0,0,.14);cursor:pointer;display:flex;flex-direction:column;align-items:flex-end;min-width:80px;max-width:240px">' +
+        '<b style="font-size:.68rem;color:#64748b;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%">' + balanceCardName(ks[i]) + '</b>' +
+        '<span style="font-weight:700;font-size:.8rem;color:#4f46e5;margin-top:1px;text-align:right;white-space:normal;word-break:break-all;overflow-wrap:anywhere;max-width:100%;line-height:1.25" title="' + String(txt).replace(/"/g, '&quot;') + '">' + txt + '</span></div>'
+    }
+    if (el.innerHTML !== html) el.innerHTML = html
+    var cards = el.querySelectorAll('.dshwv-bal-card')
+    for (var j = 0; j < cards.length; j++) {
+      (function (c) {
+        c.onclick = function (e) {
+          e.stopPropagation()
+          var id = c.getAttribute('data-id')
+          if (id === 'deepseek') refresh(true)
+          else loadApiModels(function () { try { renderBalanceCards() } catch (err) {} }, true)
+        }
+      })(cards[j])
+    }
+    // 泡泡通道随卡片渲染一同补齐（幂等：无变化不落盘）
+    try { balanceCardsSyncBubbles() } catch (err) {}
+  } catch (err) {}
+}
+// 泡泡通道：勾了「泡泡」的来源 → 自动在首个泡泡里保证存在对应模块；取消勾选 → 自动移除。
+// 注意：bubbleConfig 可能还没落盘（items 为空 / 服务端返回 null），此时用出厂默认队列初始化再追加
+// （宿主要求 items 与 lib 两个数组齐备才接受 POST）。
+function balanceCardsSyncBubbles() {
+  if (window.whaleDisplay) return
+  try {
+    if (bubbleCfg && typeof bubbleCfg !== 'object') return
+    if (!bubbleCfg || !Array.isArray(bubbleCfg.items) || !bubbleCfg.items.length) {
+      var dq = null
+      try { dq = bubbleParseDefaultItems() } catch (err) {}
+      if (!dq || !Array.isArray(dq) || !dq.length) return
+      bubbleCfg = {
+        items: dq,
+        lib: Array.isArray(bubbleLib) ? bubbleLib.slice() : [],
+        tapAdvance: !!(bubbleCfg && bubbleCfg.tapAdvance),
+      }
+    }
+    var it = bubbleCfg.items[0]
+    if (!it || it.kind === 'choice' || !Array.isArray(it.modules)) return
+    var sbi = showBalanceItems || {}
+    var ks = Object.keys(sbi)
+    var changed = false
+    for (var i = 0; i < ks.length; i++) {
+      var id = ks[i]
+      var want = !!(sbi[id] && sbi[id].bubble)
+      var found = -1
+      for (var j = 0; j < it.modules.length; j++) {
+        var mo = it.modules[j]
+        // 只管理「显示项目」同步添加的模块（带 modelId，含 deepseek）；出厂默认模块（无 modelId）不碰
+        var isMod = !!(mo && mo.modelId === id && (mo.type === 'balance' || mo.type === 'plan' || mo.type === 'quota' || mo.type === 'gptplan'))
+        if (isMod) { found = j; break }
+      }
+      if (want && found < 0) {
+        var mod = null
+        if (id === 'deepseek') mod = { type: 'balance', modelId: 'deepseek', size: 11, tpl: '{balance_ds}' }
+        else {
+          var am = apiModelById(id)
+          if (!am) continue
+          // 套餐/订阅额度模型统一走 plan 模块：编辑器里带「显示样式」窗口下拉（全部 / 5h / 周 / 月）
+          if ((am.gptPlan && am.gptPlan.ok) || am.planSupport || apiPlanWinList(id)) mod = { type: 'plan', modelId: id, size: 8, tpl: '{plan} \u00b7 {plan_reset}', planWin: 'all' }
+          else mod = { type: 'balance', modelId: id, size: 8, tpl: '{balance}' }
+        }
+        if (mod) { it.modules.push(mod); changed = true }
+      } else if (!want && found >= 0) {
+        it.modules.splice(found, 1)
+        changed = true
+      }
+    }
+    if (changed) saveBubbleCfg(bubbleCfg, function () {})
+  } catch (err) {}
 }
 // 真正的 PUT：读响应 → 失败（网络异常 / HTTP!=200 / {ok:false}）静默重试一次 → 仍失败才提示
 function configPut(payload, retried) {
@@ -21677,6 +21972,7 @@ function isWhaleHit(e) {
   }
 }
 function onDocPointerDown(e) {
+  if (e.target && e.target.closest && e.target.closest('#dshw-desktop-cards, #dshw-subscription-panel')) return
   if (e.target && e.target.closest) {
     if (e.target.closest('.dshwv-pop') || e.target.closest('.dshwv-menu-btn')) return
     // 点击在面板/弹窗内部：交给面板自身逻辑处理
@@ -21736,6 +22032,7 @@ function onDocPointerUp(e) {
 }
 function onDocPointerCancel(e) { endDrag(e, false, true) }
 function onDocClickStopper(e) {
+  if (e.target && e.target.closest && e.target.closest('#dshw-desktop-cards, #dshw-subscription-panel')) return
   // 只在鲸鱼命中区域拦截 click（保持透明区 pass-through）。
   // 持久注册（不随 endDrag 移除）——click 在 pointerup 之后派发，
   // 若在 endDrag 移除会导致 click 穿透到下方元素（如误打开文件）。
@@ -22161,6 +22458,19 @@ function sizeCfgApply(d) {
       codexStatsOn = d.codexStatsOn
       if (codexStatsToggle) codexStatsToggle.checked = codexStatsOn
     }
+    // 显示项目（多选）：老配置里没有这个键 → 保持默认（空 = 不显示迷你卡片/泡泡）
+    if (d && d.showBalanceItems && typeof d.showBalanceItems === 'object') {
+      var _sbi = {}
+      var _sbiKeys = Object.keys(d.showBalanceItems)
+      for (var _si = 0; _si < _sbiKeys.length; _si++) {
+        var _sv = d.showBalanceItems[_sbiKeys[_si]]
+        _sbi[_sbiKeys[_si]] = { card: !!(_sv && _sv.card), bubble: !!(_sv && _sv.bubble) }
+      }
+      showBalanceItems = _sbi
+      try { renderBalanceCards() } catch (err) {}
+      // 泡泡通道当前状态补齐一次（如换机器后配置还在、泡泡配置还没有对应模块）
+      try { balanceCardsSyncBubbles() } catch (err) {}
+    }
     // 无论服务端带没带这个键都要应用一次：触屏上 ☰ 需要常显（issue #91 缺陷2），
     // 而旧写法只在键存在时才调用，空配置下按钮永远是透明的。
     applyMenuBtnHideUI()
@@ -22314,7 +22624,64 @@ function pollLastTurn() {
   } catch (err) {}
 }
 setInterval(function () { pollLastTurn(); pollWaitState() }, 1000)
+// Keep desktop integration small: use the same alpha hit test and editors as Web.
+if (window.whaleDesktop && window.whaleDesktop.standalone === true) {
+  window.dshwDesktopUI = {
+    snapshot: function () { return { sources: showBalanceItems, models: apiModels } },
+    bubbleStatus: function () { return { shown: bubbleShown, kind: bubbleScene && bubbleScene.kind, on: bubbleOn, deadline: bubbleTtlDeadline } },
+    quotaText: function (id) { return { used: apiPlanUsedText(id, 'rolling'), reset: apiPlanResetText(id, 'rolling') } },
+    clickFish: whaleClick,
+    closeBubble: hideBubble,
+    showSource: function (mods) {
+      if (!bubbleOn || (bubbleScene && ['alert', 'cost', 'wait'].indexOf(bubbleScene.kind) >= 0)) return false
+      applyDefaultFrame()
+      sceneOpen('desktop-source', function () { bubbleRenderModules(mods) }, BUBBLE_MS)
+      return true
+    },
+    updateSource: function (mods) {
+      if (!bubbleShown || !bubbleScene || bubbleScene.kind !== 'desktop-source') return false
+      bubbleRenderModules(mods)
+      return true
+    },
+    refreshModels: function () { return new Promise(function (resolve) { loadApiModels(resolve, true) }) },
+    editRule: function (model, key, onSave) {
+      var saved = usageSet[key]
+      var current = (model.settings && model.settings[key]) || {}
+      usageSet[key] = Object.assign({}, current, { provider: model.provider })
+      usageAlertBudgetEditor(key, function (next) { onSave(Object.assign({}, current, next)) })
+      usageSet[key] = saved
+    },
+    notifyQuota: function (model, kind, cfg, value, label) {
+      var title = model.name + ' ' + label + (kind === 'alert' ? ' 剩余额度预警' : ' 额度使用提醒')
+      var lines = Array.isArray(cfg.lines) && cfg.lines.length ? cfg.lines : [{ type: 'text', text: title + '：' + value.toFixed(1) + '%', size: 8 }]
+      showUsagePopup(title, lines, kind === 'alert' ? cfg.below : null, kind === 'budget' ? cfg.amount : null, kind === 'budget' ? 1 : 2, cfg)
+      if (cfg.soundOn) playBindingSound({ on: true, sel: cfg.sel }, { vol: cfg.vol })
+    }
+  }
+  window.dshwDesktopHitTest = function (x, y) {
+    if (drag && drag.active) return true
+    var el = document.elementFromPoint(x, y)
+    if (el && el.closest && el.closest('#dshw-desktop-panel, #dshw-desktop-cards, #dshw-subscription-panel')) return true
+    if (widgetUiHit(el) || (el && el.closest && el.closest('.dshwv-menu'))) return true
+    return isWhaleHit({ clientX: x, clientY: y })
+  }
+  window.dshwDesktopAction = function (action) {
+    if (action === 'menu') toggleMenu()
+    else if (action === 'usage') { if (!menuOpen) toggleMenu(); showUsageSub() }
+    else if (action === 'bubble') openBubbleEditor()
+    else if (action === 'resources') openResManager()
+    else if (action === 'sound') openSoundSettingsPanel()
+    else if (action === 'refresh') { refresh(true); loadApiModels(null, true) }
+    else if (action === 'reset-position') {
+      localStorage.removeItem('dshw-pos')
+      state.h = 'right'; state.v = 'bottom'; state.hOff = 0; state.vOff = 0; state.flip = false
+      settle(); saveConfig()
+    }
+  }
+  window.dispatchEvent(new Event('dshw-desktop-ready'))
+}
 }
 // 主界面检测通过（或稍后由 MutationObserver 检测到）后执行挂件初始化；非主界面不启动
+window.addEventListener('whale-display-ready', function () { dshwTryStart(true) })
 try { dshwTryStart(true) } catch (err) {}
 })()

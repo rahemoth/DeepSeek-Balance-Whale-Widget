@@ -1,5 +1,9 @@
 # DSH 小鲸鱼记账挂件（DeepSeek Balance Whale Widget）
 
+本仓库是 [MeteorNOX/DeepSeek-Balance-Whale-Widget](https://github.com/MeteorNOX/DeepSeek-Balance-Whale-Widget) 的 **fork / Windows 独立桌面移植版**，并非上游官方 Windows 发行版。保留上游作者贡献、MIT 代码许可与素材来源说明。
+
+**Windows 安装版**请从本 fork 的 GitHub Releases 下载 `WhaleWidget-Setup-*-Windows-x64.exe`。源码运行与桌面功能详见 [desktop/README.md](desktop/README.md)。该版本复用完整挂件界面与记账内核，独立保存桌面数据；DSH 会话事件接入边界详见桌面说明。下文保留上游项目介绍。
+
 ![DSH 小鲸鱼记账挂件](assets/DSH2.png)
 
 DeepSeek Harness（DSH）Web 界面右下角的常驻挂件：小鲸鱼气泡图 + DeepSeek API 余额 + 今日已用 + 每轮对话消耗，并且**泡泡内容可以完全自定义**（点击序列、模块化排版、并列加权出泡、随机语句/随机图片）。标准 DSH bundle 插件，`dsh plugin` 一键安装，无需任何会话令牌。
@@ -83,7 +87,7 @@ DeepSeek Harness（DSH）Web 界面右下角的常驻挂件：小鲸鱼气泡图
 - 🧩 **厂商模板（34 个，选完自动带好凭据名 / 币种 / 接口 / 字段路径 / 事件匹配 / 探活地址）**：
   - **可直接查到余额或额度**：DeepSeek（内置）、OpenRouter、Kimi / Moonshot（CN / 国际）、阶跃星辰 StepFun、Novita、智谱 GLM Coding Plan（国内 / 国际 z.ai）、Kimi Coding、MiniMax Coding（国内 / 国际）、**OpenCode Go（订阅，5h / 周 / 月三窗口）**、OpenAI 兼容中转站（OneAPI / New API）
   - **官方没有「用 API key 查余额」的接口**（下拉里标注「（无余额接口）」，选完会用 `probeUrl` 探活验证 key，余额显示「—」，今日已用按会话事件估算）：硅基流动（CN / EN）、火山方舟 Ark、OpenAI、Anthropic Claude、Google Gemini、xAI Grok、Groq、Mistral AI、Together AI、Fireworks AI、DeepInfra、Cerebras、阿里云百炼（通义千问）、百度千帆（文心）、腾讯混元、讯飞星火、魔搭 ModelScope、本地模型（Ollama / LM Studio）
-  - **全手填**：自定义 HTTP（URL 与字段路径自己写）、Codex（本地会话，无需接口）
+  - **全手填**：自定义 HTTP（URL 与字段路径自己写）、Codex（本地会话，无需接口）、**ChatGPT 套餐（本地）**（读本机 Codex 登录态 `auth.json` 的 ID token，零联网、无需接口）
 - 🔑 **密钥不落配置**：密钥写入 DSH 官方凭据服务，配置文件里只存**凭据名**（如 `OPENROUTER_API_KEY`）；删除模型会连带清理该模型的额度模块与设置
 - 💰 **余额**：按模板的接口与 JSON 字段路径读取（支持 `a.b[0].c` 与 `scale` 乘数）；点「测试连通性」可先验证 key
 - 📉 **今日已用**：有余额接口时记录观测到的**下降额**（当天首次观测为统计起点，充值等增加额不会冲掉消费），无余额接口的厂商显示本机会话**估算**
@@ -91,6 +95,7 @@ DeepSeek Harness（DSH）Web 界面右下角的常驻挂件：小鲸鱼气泡图
 - 🧾 **订阅额度接口（`kind:'quota'` 模板）**：直接读厂商官方接口的「窗口已用% + 重置时间」，与上面按会话统计的额度互补。**支持一个接口返回多个窗口**（目前 OpenCode Go 为 5h / 周 / 月三窗口），逐窗口展示已用百分比与各自的紧凑重置倒计时；模板用 `quota.json.windows` 描述各窗口的字段路径
 - 💱 **单价（可选）**：位置在「密钥 / 接口」面板 → 展开「接口与字段（高级）」→「单价（可选）」。每个模型可自填单价 —— **缓存命中 / 未命中输入 / 输出**，单位是「币种 / 百万 token」；币种支持人民币（CNY）与美元（USD），**选美元时必须填汇率（元/USD）**；记账与账本**统一按人民币结算**（美元单价会按汇率折算）；单价**不分峰谷**（两个时段同价）。留空则沿用内置价目表（DeepSeek flash / pro）。注意：**内置 DeepSeek 不支持自定义单价**（始终用内置峰谷价）；额度单位选「金额（元）」时，已用**只能手动填写**
 - 🫧 **泡泡模块**：每个模型自动获得「余额·<模型名>」与「额度·<模型名>」两个模块，占位符 `{balance}`、`{today}`、`{quota}`、`{quota_used}`、`{quota_left}`、`{quota_total}`、`{quota_reset}`
+- 🎴 **显示项目（多选）**：「小鲸鱼记账」→「显示项目（多选）」：来源 = 内置 DeepSeek + 各注册模型（有余额 / 额度 / 订阅 / 套餐者），每项可勾选 **卡片**（鲸鱼上方迷你卡片常驻显示，点击卡片立即刷新该来源，多窗口额度自动换行完整显示）和/或 **泡泡**（自动在首个点击泡泡里加入对应「额度」模块——套餐/订阅模型的模块自带「显示样式」窗口下拉（全部 / 5h / 周 / 月）；取消勾选自动移除该模块；出厂默认模块不受影响；泡泡配置未落盘时会先用默认队列初始化再追加）
 
 > 说明：并非所有厂商都提供「用 API key 查余额」的接口。**硅基流动**的余额接口已被官方下线（[2026-08-11 更新公告](https://api-docs.siliconflow.cn/docs/release-notes/overview)：`/user/info` 自 **2026-08-14** 起停止服务，「后续将适时提供替代 API」，截至发版仍未见替代接口），**火山方舟**的余额 / 用量与**阿里云百炼 / 百度千帆 / 腾讯混元**一样属于各家云平台 AK/SK 签名的 OpenAPI，**OpenAI / Anthropic / Gemini / xAI / Groq / Mistral / Together / Fireworks / DeepInfra / Cerebras** 则根本没有公开的余额查询接口 —— 这些模板统一是「无余额接口 + 探活验证 key」，今日已用按会话事件估算。厂商的**订阅额度**接口（智谱 / Kimi Coding / MiniMax Coding / OpenCode Go）只对订阅套餐账号有效：Token 资源包账号调用智谱接口会返回「当前用户不存在coding plan」，这种情况请用上面的「额度（订阅 / 资源包）」自动统计。
 >
@@ -110,6 +115,7 @@ DeepSeek Harness（DSH）Web 界面右下角的常驻挂件：小鲸鱼气泡图
 - 🖥️ **显示**：模型列表显示 `Codex 今日 x · 近7天 y tokens`；模型子菜单显示今日 / 本月 / 累计 / 近7天与会话文件数；「测试」按钮直接返回本地统计
 - 🎯 **额度**：该模型的「额度」里，已用来源可选 **Codex 本地会话 token**（不重置＝累计−基准、每日＝今日、每月＝本月），复用同一套展示与泡泡模块
 - 🪟 **订阅窗口（5h / 周）**：日志里的 `rate_limits` 带窗口快照，有 ChatGPT 订阅时子菜单自动追加 `5h 已用 x% · 2小时30分后重置 | 周 已用 y% · 3天后重置`（字段名已做容错；API-key 计费或无订阅时该行不显示）
+- 🐋 **ChatGPT 套餐（本地）**：新增 `gptplan` 模板模型后，插件读 `$CODEX_HOME/auth.json` 的 ID token（零联网、零风控），显示套餐类型与剩余天数（如 `Plus · 剩 16 天`）、**5h / 周两个额度窗口的已用%与重置时间**（来自本机 Codex app-server 的 `account/rateLimits/read`，仿 CodexQuotaTray v2.6）；目录可在模型面板「Codex 目录（可选）」指定自定义位置。只取套餐字段，**不解密、不保存、不下发任何 token**。注：ChatGPT 订阅服务端只有 5h / 7 天两个窗口，**没有「月 / 总」额度窗口**（那是 OpenCode Go 等厂商的形态）；app-server 不可用时自动退化为仅套餐信息
 
 ## 目录结构
 

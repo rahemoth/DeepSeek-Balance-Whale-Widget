@@ -1,0 +1,53 @@
+{
+  "name": "whale-widget-desktop",
+  "productName": "Whale Widget",
+  "version": "1.0.0",
+  "description": "小鲸鱼 Windows 桌面挂件，完整复用 DSH 小鲸鱼界面与记账内核",
+  "author": "Whale Widget contributors",
+  "license": "MIT",
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "test:ui": "node tests/smoke.mjs",
+    "prepare:bundle": "node scripts/prepare.mjs",
+    "build": "npm run prepare:bundle && electron-builder --win nsis --x64 --publish never",
+    "build:dir": "npm run prepare:bundle && electron-builder --win --dir --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
+    "playwright": "1.64.0"
+  },
+  "build": {
+    "appId": "org.dsh.whale.widget.desktop",
+    "asar": true,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "*.mjs",
+      "preload.cjs",
+      "renderer/**",
+      "vendor/**",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "vendor/icon.png",
+      "signExecutable": false,
+      "artifactName": "WhaleWidget-Setup-${version}-Windows-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "runAfterFinish": false,
+      "deleteAppDataOnUninstall": false,
+      "license": "../LICENSE"
+    }
+  }
+}

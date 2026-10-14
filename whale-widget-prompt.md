@@ -5,6 +5,12 @@
 > 文中 `C:\Users\Meteor\.dsh\profiles\web\`、`D:\TestBox\deepseek\` 等为本机示例路径，迁移时请替换为你环境中的实际路径。
 > 当前版本：v0.2.5（含今日已用双模式、峰谷定价、随机台词、音效、汉堡菜单与每轮对话消耗统计）。
 
+> 🔧 **本仓库已合入的新增能力（在 v0.2.5 之上）**：
+> - **ChatGPT 套餐（本地）模板 `gptplan`**（`kind:'gptplan'`）：零联网读取 `$CODEX_HOME/auth.json`（或 `~/.codex`）的 ID token，base64url 解码取 `claims["https://api.openai.com/auth"]` 的 `chatgpt_plan_type` / `chatgpt_subscription_active_until`，输出 `{ ok, planType, planLabel, activeUntil, daysLeft, file }`；实测量短名（`plus` 而非 `chatgptplusplan`），映射表长短名都收；目录可用 `params.codexHome` 指定（模板面板「Codex 目录（可选）」输入框，存入模型注册表 params）。取数函数 `gptPlanScan(m)`（60s 缓存），挂在 `apiModelsPayload` 的 `kind === 'gptplan'` 分支。隐私口径：只取套餐字段，不读取/保存/下发任何 token。
+> - **OpenCode Go（订阅）模板**：`kind:'quota'` + `quota.json.windows`（rolling 5h / weekly 周 / monthly 月，字段 `usage.*.percent` / `usage.*.resetsAt`），走多窗口订阅额度链路（`fetchModelQuota` + 前端 `apiPlanPctWinText` 等）。
+> - **显示项目（多选）**：`.dshw-size.json` 新增 `showBalanceItems: { [来源id]: { card, bubble } }`（走「客户端 PUT 载荷 → 宿主写侧白名单 → 宿主读侧合并 → 客户端回填」四件套）；「小鲸鱼记账」设置界面新增「显示项目（多选）」区块（每来源「卡片 / 泡泡」两个勾选）；迷你卡片渲染 `renderBalanceCards()`（鲸鱼上方 `bottom:calc(100%+8px)` 一排，内联样式，点击卡片立即刷新该来源），泡泡通道 `balanceCardsSyncBubbles()`（勾选即向首个点击泡泡追加对应模块：deepseek→`balance`、额度多窗口→`plan`、套餐→`gptplan`，取消勾选自动移除）。
+> - 前端模块体系新增 `gptplan` 类型：占位符 `{gpt_plan}`（类型 · 剩余天数）/ `{gpt_days}`，调色板「套餐·<模型名>」chip，`moduleTypeName` 与帮助文案同步；`apiSaveModel` 允许本地数据源模板（codex / gptplan）空凭据名保存。
+
 ---
 
 ## 一、需求总览

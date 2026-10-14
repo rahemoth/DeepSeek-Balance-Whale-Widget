@@ -27,3 +27,10 @@ node_modules/
 *.bak2
 *.bak-devpaths
 _patch_*.patch
+
+# Windows desktop dependencies, copied source and build artifacts
+desktop/vendor/
+desktop/dist/
+desktop/test-results/
+desktop/.interrupted-*/
+desktop/.interrupted-*.json
