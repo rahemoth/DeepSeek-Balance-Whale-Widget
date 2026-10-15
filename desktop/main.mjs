@@ -7,6 +7,8 @@ import { createCredentialStore, readJson, writeJson } from './storage.mjs'
 import { importLegacy } from './migration.mjs'
 import { ensureCardSources } from './card-sources.mjs'
 import { normalizeLayout } from './layout.mjs'
+import { createInputLease } from './input-lease.mjs'
+import { createRendererHealth } from './renderer-health.mjs'
 
 const desktopRoot = path.dirname(fileURLToPath(import.meta.url))
 const sourceRoot = app.isPackaged ? path.join(desktopRoot, 'vendor') : path.dirname(desktopRoot)
@@ -14,7 +16,8 @@ app.setName('Whale Widget')
 app.setPath('userData', process.env.WHALE_TEST_DATA_HOME || path.join(app.getPath('appData'), 'WhaleWidget'))
 protocol.registerSchemesAsPrivileged([{ scheme: 'whale', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }])
 
-let win, tray, host, credentials, cursorTimer
+let win, tray, host, credentials, cursorTimer, inputLease, rendererHealth
+let recoveringRenderer = false
 let config = {}
 let interactive = false
 const dataHome = path.join(app.getPath('userData'), 'data')
@@ -100,6 +103,25 @@ async function boot() {
   win.setMenu(null)
   win.setAlwaysOnTop(config.alwaysOnTop, 'floating')
   win.setIgnoreMouseEvents(true, { forward: true })
+  inputLease = createInputLease(value => {
+    interactive = value
+    if (!win || win.isDestroyed()) return
+    win.setIgnoreMouseEvents(!value, { forward: true })
+    if (!value) win.setFocusable(false)
+  })
+  win.on('unresponsive', () => inputLease.release())
+  rendererHealth = createRendererHealth(() => {
+    inputLease.release()
+    recoveringRenderer = true
+    // Log only the event and time, never account, balance or credentials.
+    try {
+      const log = path.join(dataHome, 'desktop-health.log')
+      if (fs.existsSync(log) && fs.statSync(log).size > 65536) fs.renameSync(log, log + '.previous')
+      fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), event: 'renderer-heartbeat-timeout' }) + '\n')
+    } catch {}
+    // A normal reload can itself wait forever behind a blocked JS thread.
+    win.webContents.forcefullyCrashRenderer()
+  })
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url)
     return { action: 'deny' }
@@ -111,17 +133,23 @@ async function boot() {
     }
   })
   win.webContents.on('render-process-gone', () => {
+    inputLease.release()
     interactive = false
     win.setIgnoreMouseEvents(true, { forward: true })
+    if (recoveringRenderer) {
+      recoveringRenderer = false
+      rendererHealth.reset()
+      win.reload()
+      return
+    }
     // Keep the tray available for recovery; no invisible window may block input.
     dialog.showMessageBox({ type: 'error', message: '挂件界面已停止，是否重新加载？', buttons: ['重新加载', '退出'] }).then(({ response }) => response === 0 ? win.reload() : app.quit())
   })
   win.on('closed', () => app.quit())
   ipcMain.on('desktop:interactive', (event, value) => {
-    if (!trusted(event) || typeof value !== 'boolean' || interactive === value) return
-    interactive = value
-    win.setIgnoreMouseEvents(!value, { forward: true })
-    if (!value) win.setFocusable(false)
+    if (!trusted(event) || typeof value !== 'boolean') return
+    inputLease.renew(value)
+    rendererHealth.heartbeat()
   })
   ipcMain.on('desktop:focus', event => {
     if (!trusted(event)) return
@@ -176,8 +204,10 @@ async function boot() {
   rebuildTray()
   globalShortcut.register('CommandOrControl+Alt+W', showHide)
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) screen.on(event, () => { placeWindow(); rebuildTray() })
-  powerMonitor.on('resume', () => { placeWindow(); action('refresh') })
+  powerMonitor.on('resume', () => { rendererHealth.reset(); placeWindow(); action('refresh') })
   cursorTimer = setInterval(() => {
+    inputLease.check()
+    rendererHealth.check(!!win && !win.isDestroyed() && win.isVisible())
     if (!win || win.isDestroyed() || !win.isVisible()) return
     const cursor = screen.getCursorScreenPoint()
     const bounds = win.getBounds()

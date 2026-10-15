@@ -2,12 +2,15 @@
   const desktop = window.whaleDesktop
   let pointerDown = false
   let interactive = false
+  let lastLease = 0
   let lastPoint = { x: -1, y: -1 }
   function update(point = lastPoint) {
     lastPoint = point
     const hit = pointerDown || !!document.querySelector('#dshw-desktop-panel') ||
       !!(window.dshwDesktopHitTest && window.dshwDesktopHitTest(point.x, point.y))
-    if (hit !== interactive) { interactive = hit; desktop.setInteractive(hit) }
+    if (hit !== interactive || Date.now() - lastLease >= 250) {
+      interactive = hit; lastLease = Date.now(); desktop.setInteractive(hit)
+    }
   }
   // Main-process cursor polling also works when Windows sends the pointer to
   // another app. It closes the re-entry gap of mousemove-only click-through.

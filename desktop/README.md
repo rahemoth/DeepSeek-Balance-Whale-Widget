@@ -6,6 +6,8 @@
 
 安装版：在本 fork 的 GitHub Releases 下载 `WhaleWidget-Setup-*-Windows-x64.exe`，按向导选择目录安装。安装器提供桌面和开始菜单快捷方式。应用数据仍存放在 `%APPDATA%\WhaleWidget`，卸载不会删除这些数据。此版本未配置代码签名。
 
+旧安装版可直接运行新版安装器覆盖升级，无需卸载。后续版本保持相同 `appId`、NSIS 安装标识和用户数据路径，沿用已登记的安装目录并保留账户与显示配置。1.0.1 的升级验证使用 1.0.0 安装器安装后直接运行新版安装器。
+
 已安装依赖时双击 `start.cmd`。也可以在本目录执行 `npm start`。首次设置面板可以填写 DeepSeek API Key；留空也能使用角色、泡泡和本地数据功能。
 
 新机器首次安装：Node.js 22 或更新版本，执行 `npm ci`，再执行 `npm start`。Electron 初次安装需要下载其 Windows 运行时。
@@ -51,6 +53,10 @@ ChatGPT 额度读取进程自动使用 Windows 系统代理（含 PAC）；已�
 设置 `WHALE_TEST_EXECUTABLE` 为安装后 `Whale Widget.exe` 的绝对路径，可用相同界面测试验证安装版。Windows 桌面 v1.0.0 已通过实际 NSIS 安装与安装后的界面测试。
 
 `node tests/plus-startup.mjs` 是手动运行的真实登录测试：用临时挂件数据连续冷启动两次，检查本机 ChatGPT 登录的 5h／周窗口读取；不打印凭据或具体额度。本机 Plus 已通过此测试。
+
+Plus 冷启动请求允许等待 30 秒，系统代理解析最多等待 5 秒，均异步执行。挂件界面连续 15 秒没有心跳时会自动重新加载，首次加载和唤醒给予 30 秒宽限，10 分钟内最多自动恢复 3 次。恢复记录写入数据目录 `desktop-health.log`，仅记录事件和时间。
+
+`node tests/input-recovery.mjs` 使用临时数据模拟短暂卡顿及持续卡死，验证鼠标穿透恢复、挂件自动重载和已保存状态保留；也支持 `WHALE_TEST_EXECUTABLE`。
 
 未进行真实 API Key 连通性、多显示器硬件切换或实际鼠标点击底层应用的人工验证。
 

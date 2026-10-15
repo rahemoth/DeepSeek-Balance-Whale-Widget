@@ -17,7 +17,8 @@ delete env.ELECTRON_RUN_AS_NODE
 try {
   for (let run = 1; run <= 2; run++) {
     const start = Date.now()
-    const app = await electron.launch({ args: [root], env, timeout: 30000 })
+    const executablePath = process.env.WHALE_TEST_EXECUTABLE
+    const app = await electron.launch({ ...(executablePath ? { executablePath, args: [] } : { args: [root] }), env, timeout: 30000 })
     try {
       const page = await app.firstWindow()
       await page.waitForFunction(() => !!window.dshwDesktopUI, { timeout: 15000 })
