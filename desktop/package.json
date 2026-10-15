@@ -1,7 +1,7 @@
 {
   "name": "whale-widget-desktop",
   "productName": "Whale Widget",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "小鲸鱼 Windows 桌面挂件，完整复用 DSH 小鲸鱼界面与记账内核",
   "author": "Whale Widget contributors",
   "license": "MIT",
