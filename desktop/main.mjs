@@ -14,6 +14,13 @@ const desktopRoot = path.dirname(fileURLToPath(import.meta.url))
 const sourceRoot = app.isPackaged ? path.join(desktopRoot, 'vendor') : path.dirname(desktopRoot)
 app.setName('Whale Widget')
 app.setPath('userData', process.env.WHALE_TEST_DATA_HOME || path.join(app.getPath('appData'), 'WhaleWidget'))
+// This always-on-top transparent window must keep painting even while another
+// app covers most of it. Avoid the Windows GPU/occlusion path for this 2D widget.
+if (process.platform === 'win32') {
+  app.disableHardwareAcceleration()
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
+  app.commandLine.appendSwitch('disable-renderer-backgrounding')
+}
 protocol.registerSchemesAsPrivileged([{ scheme: 'whale', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }])
 
 let win, tray, host, credentials, cursorTimer, inputLease, rendererHealth
@@ -106,18 +113,19 @@ async function boot() {
   inputLease = createInputLease(value => {
     interactive = value
     if (!win || win.isDestroyed()) return
+    if (value) win.setFocusable(true)
     win.setIgnoreMouseEvents(!value, { forward: true })
     if (!value) win.setFocusable(false)
   })
   win.on('unresponsive', () => inputLease.release())
-  rendererHealth = createRendererHealth(() => {
+  rendererHealth = createRendererHealth(reason => {
     inputLease.release()
     recoveringRenderer = true
     // Log only the event and time, never account, balance or credentials.
     try {
       const log = path.join(dataHome, 'desktop-health.log')
       if (fs.existsSync(log) && fs.statSync(log).size > 65536) fs.renameSync(log, log + '.previous')
-      fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), event: 'renderer-heartbeat-timeout' }) + '\n')
+      fs.appendFileSync(log, JSON.stringify({ at: new Date().toISOString(), event: reason }) + '\n')
     } catch {}
     // A normal reload can itself wait forever behind a blocked JS thread.
     win.webContents.forcefullyCrashRenderer()
@@ -150,6 +158,9 @@ async function boot() {
     if (!trusted(event) || typeof value !== 'boolean') return
     inputLease.renew(value)
     rendererHealth.heartbeat()
+  })
+  ipcMain.on('desktop:frame', event => {
+    if (trusted(event)) rendererHealth.frame()
   })
   ipcMain.on('desktop:focus', event => {
     if (!trusted(event)) return

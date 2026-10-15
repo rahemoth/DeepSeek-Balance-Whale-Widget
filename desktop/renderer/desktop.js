@@ -3,6 +3,12 @@
   let pointerDown = false
   let interactive = false
   let lastLease = 0
+  let lastFrame = 0
+  function frame(time) {
+    if (time - lastFrame >= 1000) { lastFrame = time; desktop.frame() }
+    requestAnimationFrame(frame)
+  }
+  requestAnimationFrame(frame)
   let lastPoint = { x: -1, y: -1 }
   function update(point = lastPoint) {
     lastPoint = point

@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 contextBridge.exposeInMainWorld('whaleDesktop', {
   standalone: true,
   setInteractive: value => ipcRenderer.send('desktop:interactive', !!value),
+  frame: () => ipcRenderer.send('desktop:frame'),
   focus: () => ipcRenderer.send('desktop:focus'),
   settings: () => ipcRenderer.invoke('desktop:settings'),
   saveLayout: value => ipcRenderer.invoke('desktop:save-layout', value),

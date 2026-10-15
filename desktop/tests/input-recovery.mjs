@@ -62,7 +62,8 @@ try {
     return { ready: false }
   })
   assert.deepEqual(restored, { ready: true, value: 'preserved' })
-  assert.match(fs.readFileSync(path.join(home, 'data/desktop-health.log'), 'utf8'), /renderer-heartbeat-timeout/)
+  // Either detector may expire first when the entire JS thread stops.
+  assert.match(fs.readFileSync(path.join(home, 'data/desktop-health.log'), 'utf8'), /renderer-(heartbeat|frame)-timeout/)
   console.log('PASS: persistent renderer freeze reloads automatically and preserves saved state')
 } finally {
   await app.close()
